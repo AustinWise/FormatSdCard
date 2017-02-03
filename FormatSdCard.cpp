@@ -95,16 +95,22 @@ static void printPartitions(HandleHolder& hDrive)
 {
 	BYTE bigBuffer[10240];
 	TryDevIoControlGet(hDrive, IOCTL_DISK_GET_DRIVE_LAYOUT_EX, bigBuffer);
+	//TODO: look up for the rules for aliasing to see if this is safe
 	DRIVE_LAYOUT_INFORMATION_EX *layout = reinterpret_cast<DRIVE_LAYOUT_INFORMATION_EX *>(&bigBuffer);
 
 	for (size_t i = 0; i < layout->PartitionCount; i++)
 	{
 		PARTITION_INFORMATION_EX* part = &layout->PartitionEntry[i];
-		if (part->PartitionStyle != PARTITION_STYLE::PARTITION_STYLE_MBR)
-			continue;
-		if (part->Mbr.PartitionType == PARTITION_ENTRY_UNUSED)
-			continue;
-		printf("\t%u: start: %u length: %u\n", part->PartitionNumber, ConvertBytesToMB(part->StartingOffset), ConvertBytesToMB(part->PartitionLength));
+		if (part->PartitionStyle == PARTITION_STYLE_MBR)
+		{
+			if (part->Mbr.PartitionType == PARTITION_ENTRY_UNUSED)
+				continue;
+			printf("\tMBR %u: start: %u length: %u\n", part->PartitionNumber, ConvertBytesToMB(part->StartingOffset), ConvertBytesToMB(part->PartitionLength));
+		}
+		else if (part->PartitionStyle == PARTITION_STYLE_GPT)
+		{
+			printf("\tGPT %u: start: %u length: %u\n", part->PartitionNumber, ConvertBytesToMB(part->StartingOffset), ConvertBytesToMB(part->PartitionLength));
+		}
 	}
 }
 
@@ -128,7 +134,8 @@ int main()
 		HandleHolder hDrive(CreateFile(buf, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY, NULL));
 		if (!hDrive.isValid())
 		{
-			assert(GetLastError() == ERROR_FILE_NOT_FOUND);
+			DWORD lastError = GetLastError();
+			assert(lastError == ERROR_FILE_NOT_FOUND);
 		}
 		else
 		{
