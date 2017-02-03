@@ -145,12 +145,12 @@ int main()
 			//printPartitions(hDrive);
 			if (isRemovable)
 			{
-				DWORD bytesReturned;
-				int rc = DeviceIoControl(hDrive.value(), IOCTL_DISK_DELETE_DRIVE_LAYOUT, NULL, 0, NULL, 0, &bytesReturned, NULL);
-				if (rc == 0)
-				{
-					PrintLastErrorAndDie();
-				}
+				//DWORD bytesReturned;
+				//int rc = DeviceIoControl(hDrive.value(), IOCTL_DISK_DELETE_DRIVE_LAYOUT, NULL, 0, NULL, 0, &bytesReturned, NULL);
+				//if (rc == 0)
+				//{
+				//	PrintLastErrorAndDie();
+				//}
 			}
 		}
 	}
