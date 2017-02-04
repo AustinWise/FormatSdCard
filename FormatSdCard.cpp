@@ -3,6 +3,7 @@
 
 #include "stdafx.h"
 
+
 class HandleHolder
 {
 private:
@@ -70,7 +71,7 @@ void TryDevIoControlGet(HandleHolder& hDevice, _In_ DWORD dwIoControlCode, type&
 {
 	DWORD bytesReturn = 0;
 	BOOL worked = false;
-	size_t expectedSize = sizeof(type);
+	DWORD expectedSize = sizeof(type);
 
 	worked = DeviceIoControl(hDevice.value(), dwIoControlCode, NULL, 0, reinterpret_cast<void*>(&outBuf), expectedSize, &bytesReturn, NULL);
 	if (!worked)
@@ -91,12 +92,16 @@ static DWORD ConvertBytesToMB(LARGE_INTEGER bytes)
 	return (DWORD)(bytes.QuadPart / 1024LL / 1024LL);
 }
 
-static void printPartitions(HandleHolder& hDrive)
+static void printPartitions(HandleHolder& hDrive, int driveNumber)
 {
 	BYTE bigBuffer[10240];
 	TryDevIoControlGet(hDrive, IOCTL_DISK_GET_DRIVE_LAYOUT_EX, bigBuffer);
 	//TODO: look up for the rules for aliasing to see if this is safe
 	DRIVE_LAYOUT_INFORMATION_EX *layout = reinterpret_cast<DRIVE_LAYOUT_INFORMATION_EX *>(&bigBuffer);
+	if (layout->PartitionStyle == PARTITION_STYLE_MBR)
+	{
+		printf("\tSIG: %x\n", layout->Mbr.Signature);
+	}
 
 	for (size_t i = 0; i < layout->PartitionCount; i++)
 	{
@@ -131,7 +136,7 @@ int main()
 	{
 		int driveNameLength = _sntprintf_s(buf, bufSize, _T("\\\\.\\PhysicalDrive%d"), i);
 		assert(driveNameLength > 0 && driveNameLength < sizeof(buf));
-		HandleHolder hDrive(CreateFile(buf, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY, NULL));
+		HandleHolder hDrive(CreateFile(buf, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL));//FILE_ATTRIBUTE_READONLY
 		if (!hDrive.isValid())
 		{
 			DWORD lastError = GetLastError();
@@ -149,15 +154,29 @@ int main()
 			bool isRemovable = driveGeomEx.Geometry.MediaType == MEDIA_TYPE::RemovableMedia;
 			_tprintf(_T("%s: %s disk size: %u GB\n"), buf, isRemovable ? _T("removable") : _T("fixed"), sizeInGb);
 
-			//printPartitions(hDrive);
+			printPartitions(hDrive, i);
 			if (isRemovable)
 			{
-				//DWORD bytesReturned;
-				//int rc = DeviceIoControl(hDrive.value(), IOCTL_DISK_DELETE_DRIVE_LAYOUT, NULL, 0, NULL, 0, &bytesReturned, NULL);
-				//if (rc == 0)
-				//{
-				//	PrintLastErrorAndDie();
-				//}
+				DRIVE_LAYOUT_INFORMATION_EX newLayout;
+				newLayout.PartitionCount = 1;
+				newLayout.PartitionStyle = PARTITION_STYLE_MBR;
+				newLayout.Mbr.Signature = 0;
+				newLayout.PartitionEntry[0].PartitionStyle = PARTITION_STYLE_MBR;
+				newLayout.PartitionEntry[0].PartitionNumber = 1;
+				newLayout.PartitionEntry[0].StartingOffset.QuadPart = 4 * 1024 * 1024;
+				newLayout.PartitionEntry[0].PartitionLength.QuadPart = 20 * 1024 * 1024;
+				newLayout.PartitionEntry[0].RewritePartition = TRUE;
+				newLayout.PartitionEntry[0].Mbr.BootIndicator = FALSE;
+				newLayout.PartitionEntry[0].Mbr.HiddenSectors = 0;
+				newLayout.PartitionEntry[0].Mbr.PartitionType = 0x0C; //FAT32
+				newLayout.PartitionEntry[0].Mbr.RecognizedPartition = TRUE;
+
+				DWORD bytesReturned;
+				int rc = DeviceIoControl(hDrive.value(), IOCTL_DISK_SET_DRIVE_LAYOUT_EX, &newLayout, sizeof(newLayout), NULL, 0, &bytesReturned, NULL);
+				if (rc == 0)
+				{
+					PrintLastErrorAndDie();
+				}
 			}
 		}
 	}
